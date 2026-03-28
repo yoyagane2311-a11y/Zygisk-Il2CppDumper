@@ -97,7 +97,7 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
     auto libart = dlopen("libart.so", RTLD_NOW);
     if (!libart) return false;
 
-    auto JNI_GetCreatedJavaVMs = (jint ()(JavaVM *, jsize, jsize *)) dlsym(libart, "JNI_GetCreatedJavaVMs");
+    auto JNI_GetCreatedJavaVMs = (jint (*)(JavaVM **, jsize, jsize *)) dlsym(libart, "JNI_GetCreatedJavaVMs");
     if (!JNI_GetCreatedJavaVMs) return false;
 
     JavaVM *vms_buf[1];
