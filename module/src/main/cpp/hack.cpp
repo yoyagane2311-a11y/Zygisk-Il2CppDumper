@@ -14,44 +14,43 @@
 #include <array>
 #include <string>
 
-// --- SECCIÓN CORREGIDA: hack_start ---
+// --- FUNCIÓN HACK_START CORREGIDA ---
 void hack_start(const char *game_data_dir) {
-    bool load = false;
     LOGI("Iniciando búsqueda avanzada para Standoff 2...");
     
-    // Esperamos a que el juego termine de desempaquetar librerías en memoria
+    // Esperamos un poco para que el juego termine de cargar en el moto g41
     sleep(5); 
 
     for (int i = 0; i < 30; i++) {
-        // Usamos XDL_DEFAULT para saltar protecciones de visibilidad de símbolos
+        // Usamos XDL_DEFAULT para encontrar símbolos aunque estén ocultos
         void *handle = xdl_open("libil2cpp.so", XDL_DEFAULT);
         
         if (handle) {
-            LOGI("¡libil2cpp encontrada en %p! Intentando inicializar APIs...", handle);
+            LOGI("¡libil2cpp encontrada en %p!", handle);
             
-            // Intentamos cargar las funciones internas (il2cpp_init, etc)
-            load = il2cpp_api_init(handle);
+            // Inicializamos las APIs (Quitamos el "load =" que daba error)
+            il2cpp_api_init(handle);
             
-            if (load) {
-                LOGI("¡APIs cargadas con éxito! Iniciando dump en: %s", game_data_dir);
-                il2cpp_dump(game_data_dir);
-                break;
-            } else {
-                LOGW("APIs no encontradas en libil2cpp. Reintentando con soporte de libunity...");
-                xdl_close(handle);
-                // A veces cargar libunity ayuda a exponer los símbolos de il2cpp
-                void *u_handle = xdl_open("libunity.so", XDL_DEFAULT);
-                if (u_handle) LOGI("libunity cargada como puente de memoria.");
-            }
+            // Intentamos el dump
+            LOGI("Iniciando dump en: %s", game_data_dir);
+            il2cpp_dump(game_data_dir);
+            
+            // Si llegamos acá, terminamos con éxito
+            return; 
         } else {
             LOGI("Buscando libil2cpp... reintento %d/30", i + 1);
+            
+            // Soporte opcional: buscamos libunity por si ayuda a la visibilidad
+            void *u_handle = xdl_open("libunity.so", XDL_DEFAULT);
+            if (u_handle) {
+                LOGI("libunity detectada, esperando a que libil2cpp sea visible...");
+                xdl_close(u_handle);
+            }
         }
         sleep(1);
     }
 
-    if (!load) {
-        LOGE("ERROR: No se pudo inicializar el dumper. Las APIs siguen ocultas.");
-    }
+    LOGE("ERROR: No se encontró libil2cpp después de 30 intentos.");
 }
 
 std::string GetLibDir(JavaVM *vms) {
@@ -106,13 +105,12 @@ struct NativeBridgeCallbacks {
     void *(*loadLibraryExt)(const char *libpath, int flag, void *ns);
 };
 
-// --- SECCIÓN CORREGIDA: NativeBridgeLoad (Arreglo de puntero dlsym) ---
 bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size_t length) {
     sleep(5);
     auto libart = dlopen("libart.so", RTLD_NOW);
     if (!libart) return false;
 
-    // Arreglo del casteo de la función para evitar error de compilación
+    // Casteo corregido para evitar errores de tipo en el compilador
     auto JNI_GetCreatedJavaVMs = (jint (*)(JavaVM **, jsize, jsize *)) dlsym(libart, "JNI_GetCreatedJavaVMs");
     if (!JNI_GetCreatedJavaVMs) return false;
 
