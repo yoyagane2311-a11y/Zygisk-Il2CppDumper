@@ -14,29 +14,43 @@
 #include <array>
 #include <string>
 
+// --- SECCIÓN CORREGIDA: hack_start ---
 void hack_start(const char *game_data_dir) {
     bool load = false;
-    LOGI("Iniciando búsqueda de librerías para Standoff 2...");
+    LOGI("Iniciando búsqueda avanzada para Standoff 2...");
     
-    for (int i = 0; i < 25; i++) {
-        void *handle = xdl_open("libil2cpp.so", 0);
-        if (!handle) handle = xdl_open("libunity.so", 0);
-        if (!handle) handle = xdl_open("libmain.so", 0);
+    // Esperamos a que el juego termine de desempaquetar librerías en memoria
+    sleep(5); 
 
+    for (int i = 0; i < 30; i++) {
+        // Usamos XDL_DEFAULT para saltar protecciones de visibilidad de símbolos
+        void *handle = xdl_open("libil2cpp.so", XDL_DEFAULT);
+        
         if (handle) {
-            LOGI("¡Librería encontrada! Iniciando dump...");
-            load = true;
-            il2cpp_api_init(handle);
-            il2cpp_dump(game_data_dir);
-            break;
+            LOGI("¡libil2cpp encontrada en %p! Intentando inicializar APIs...", handle);
+            
+            // Intentamos cargar las funciones internas (il2cpp_init, etc)
+            load = il2cpp_api_init(handle);
+            
+            if (load) {
+                LOGI("¡APIs cargadas con éxito! Iniciando dump en: %s", game_data_dir);
+                il2cpp_dump(game_data_dir);
+                break;
+            } else {
+                LOGW("APIs no encontradas en libil2cpp. Reintentando con soporte de libunity...");
+                xdl_close(handle);
+                // A veces cargar libunity ayuda a exponer los símbolos de il2cpp
+                void *u_handle = xdl_open("libunity.so", XDL_DEFAULT);
+                if (u_handle) LOGI("libunity cargada como puente de memoria.");
+            }
         } else {
-            LOGI("Buscando librerías... reintento %d/25", i + 1);
-            sleep(1);
+            LOGI("Buscando libil2cpp... reintento %d/30", i + 1);
         }
+        sleep(1);
     }
 
     if (!load) {
-        LOGE("No se encontró ninguna librería compatible.");
+        LOGE("ERROR: No se pudo inicializar el dumper. Las APIs siguen ocultas.");
     }
 }
 
@@ -92,11 +106,13 @@ struct NativeBridgeCallbacks {
     void *(*loadLibraryExt)(const char *libpath, int flag, void *ns);
 };
 
+// --- SECCIÓN CORREGIDA: NativeBridgeLoad (Arreglo de puntero dlsym) ---
 bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size_t length) {
     sleep(5);
     auto libart = dlopen("libart.so", RTLD_NOW);
     if (!libart) return false;
 
+    // Arreglo del casteo de la función para evitar error de compilación
     auto JNI_GetCreatedJavaVMs = (jint (*)(JavaVM **, jsize, jsize *)) dlsym(libart, "JNI_GetCreatedJavaVMs");
     if (!JNI_GetCreatedJavaVMs) return false;
 
@@ -141,16 +157,16 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
 
 void hack_prepare(const char *game_data_dir, void *data, size_t length) {
     int api_level = android_get_device_api_level();
-#if defined(_i386) || defined(x86_64_)
+#if defined(i386) || defined(x86_64)
     if (!NativeBridgeLoad(game_data_dir, api_level, data, length)) {
 #endif
         hack_start(game_data_dir);
-#if defined(_i386) || defined(x86_64_)
+#if defined(i386) || defined(x86_64)
     }
 #endif
 }
 
-#if defined(_arm) || defined(aarch64_)
+#if defined(arm) || defined(aarch64)
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     auto game_data_dir = (const char *) reserved;
     std::thread hack_thread(hack_start, game_data_dir);
